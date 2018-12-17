@@ -9,7 +9,7 @@ __metaclass__ = type
 
 ANSIBLE_METADATA = {'metadata_version': '1.1',
                     'status': ['preview'],
-                    'supported_by': 'community'}
+                    'supported_by': 'certified'}
 
 DOCUMENTATION = r'''
 ---
@@ -20,8 +20,12 @@ description:
 notes:
 - The C(aep) and C(domain) parameters should exist before using this module.
   The M(aci_aep) and M(aci_domain) can be used for these.
-- More information about the internal APIC class B(infra:RsDomP) from
-  L(the APIC Management Information Model reference,https://developer.cisco.com/docs/apic-mim-ref/).
+seealso:
+- module: aci_aep
+- module: aci_domain
+- name: APIC Management Information Model reference
+  description: More information about the internal APIC class B(infra:RsDomP).
+  link: https://developer.cisco.com/docs/apic-mim-ref/
 author:
 - Dag Wieers (@dagwieers)
 version_added: '2.5'

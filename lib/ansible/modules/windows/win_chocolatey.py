@@ -33,6 +33,14 @@ options:
     type: bool
     default: 'no'
     version_added: '2.2'
+  allow_multiple:
+    description:
+    - Allow the installation of multiple packages when I(version) is specified.
+    - Having multiple packages at different versions can cause issues if the
+      package doesn't support this. Use at your own risk.
+    type: bool
+    default: no
+    version_added: '2.8'
   allow_prerelease:
     description:
     - Allow the installation of pre-release packages.
@@ -194,7 +202,8 @@ options:
   version:
     description:
     - Specific version of the package to be installed.
-    - Ignored when I(state) is set to C(absent).
+    - When I(state) is set to C(absent), will uninstall the specific version
+      otherwise all versions of that package will be removed.
     type: str
 notes:
 - Provide the C(version) parameter value as a string (e.g. C('6.1')), otherwise it
@@ -213,6 +222,14 @@ notes:
 - If (C(become)) is unavailable, use (M(win_hotfix) to install hotfixes instead
   of (M(win_chocolatey)) as (M(win_hotfix)) avoids using wusa.exe which cannot
   be run without (C(become)).
+seealso:
+- module: win_chocolatey_config
+- module: win_chocolatey_facts
+- module: win_chocolatey_feature
+- module: win_chocolatey_source
+- module: win_feature
+- module: win_package
+- module: win_updates
 author:
 - Trond Hindenes (@trondhindenes)
 - Peter Mounce (@petemounce)
@@ -281,7 +298,7 @@ EXAMPLES = r'''
   win_chocolatey:
     name: '{{ item }}'
     state: present
-  with_items:
+  loop:
   - procexp
   - putty
   - windirstat

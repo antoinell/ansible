@@ -125,6 +125,7 @@ options:
     organisation:
         description:
             - Organisation
+        aliases: [ organization ]
     override_pw_history:
         type: bool
         default: 'no'
@@ -330,7 +331,8 @@ def main():
                                          type='list',
                                          aliases=['mobileTelephoneNumber']),
             organisation=dict(default=None,
-                              type='str'),
+                              type='str',
+                              aliases=['organization']),
             overridePWHistory=dict(default=False,
                                    type='bool',
                                    aliases=['override_pw_history']),
@@ -474,7 +476,7 @@ def main():
                     obj.create()
                 elif changed:
                     obj.modify()
-        except:
+        except Exception:
             module.fail_json(
                 msg="Creating/editing user {} in {} failed".format(
                     username,
@@ -495,7 +497,7 @@ def main():
                         if not module.check_mode:
                             grp.modify()
                         changed = True
-        except:
+        except Exception:
             module.fail_json(
                 msg="Adding groups to user {} failed".format(username)
             )
@@ -506,7 +508,7 @@ def main():
             if not module.check_mode:
                 obj.remove()
             changed = True
-        except:
+        except Exception:
             module.fail_json(
                 msg="Removing user {} failed".format(username)
             )

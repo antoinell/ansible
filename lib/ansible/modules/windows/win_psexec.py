@@ -16,6 +16,8 @@ short_description: Runs commands (remotely) as another (privileged) user
 description:
 - Run commands (remotely) through the PsExec service
 - Run commands as another (domain) user (with elevated privileges)
+requirements:
+- Microsoft PsExec
 options:
   command:
     description:
@@ -65,6 +67,13 @@ options:
     - Run the program so that it interacts with the desktop on the remote system.
     type: bool
     default: 'no'
+  session:
+    description:
+    - Specifies the session ID to use.
+    - This parameter works in conjunction with I(interactive).
+    - It has no effect when I(interactive) is set to C(no).
+    type: int
+    version_added: '2.7'
   limited:
     description:
     - Run the command as limited user (strips the Administrators group and allows only privileges assigned to the Users group).
@@ -98,8 +107,11 @@ options:
 notes:
 - More information related to Microsoft PsExec is available from
   U(https://technet.microsoft.com/en-us/sysinternals/bb897553.aspx)
-requirements:
-- Microsoft PsExec
+seealso:
+- module: psexec
+- module: raw
+- module: win_command
+- module: win_shell
 author:
 - Dag Wieers (@dagwieers)
 '''

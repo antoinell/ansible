@@ -30,6 +30,7 @@ import re
 import sys
 import warnings
 from collections import defaultdict
+from copy import deepcopy
 from distutils.version import LooseVersion
 from functools import partial
 from pprint import PrettyPrinter
@@ -55,6 +56,7 @@ from ansible.module_utils.parsing.convert_bool import boolean
 from ansible.plugins.loader import fragment_loader
 from ansible.utils import plugin_docs
 from ansible.utils.display import Display
+from ansible.utils._build_helpers import update_file_if_different
 
 
 #####################################################################################
@@ -182,8 +184,8 @@ def write_data(text, output_dir, outputname, module=None):
             os.makedirs(output_dir)
         fname = os.path.join(output_dir, outputname)
         fname = fname.replace(".py", "")
-        with open(fname, 'wb') as f:
-            f.write(to_bytes(text))
+
+        update_file_if_different(fname, to_bytes(text))
     else:
         print(text)
 
@@ -205,6 +207,7 @@ def get_plugin_info(module_dir, limit_to=None, verbose=False):
             :aliases: set of aliases to this module name
             :metadata: The modules metadata (as recorded in the module)
             :doc: The documentation structure for the module
+            :seealso: The list of dictionaries with references to related subjects
             :examples: The module's examples
             :returndocs: The module's returndocs
 
@@ -263,11 +266,18 @@ def get_plugin_info(module_dir, limit_to=None, verbose=False):
         # Regular module to process
         #
 
+        # use ansible core library to parse out doc metadata YAML and plaintext examples
+        doc, examples, returndocs, metadata = plugin_docs.get_docstring(module_path, fragment_loader, verbose=verbose)
+
+        if metadata and 'removed' in metadata.get('status'):
+            continue
+
         category = categories
 
         # Start at the second directory because we don't want the "vendor"
         mod_path_only = os.path.dirname(module_path[len(module_dir):])
 
+        primary_category = ''
         module_categories = []
         # build up the categories that this module belongs to
         for new_cat in mod_path_only.split('/')[1:]:
@@ -282,9 +292,6 @@ def get_plugin_info(module_dir, limit_to=None, verbose=False):
         # the category we will use in links (so list_of_all_plugins can point to plugins/action_plugins/*'
         if module_categories:
             primary_category = module_categories[0]
-
-        # use ansible core library to parse out doc metadata YAML and plaintext examples
-        doc, examples, returndocs, metadata = plugin_docs.get_docstring(module_path, fragment_loader, verbose=verbose)
 
         if 'options' in doc and doc['options'] is None:
             display.error("*** ERROR: DOCUMENTATION.options must be a dictionary/hash when used. ***")
@@ -328,7 +335,7 @@ def generate_parser():
     p.add_option("-A", "--ansible-version", action="store", dest="ansible_version", default="unknown", help="Ansible version number")
     p.add_option("-M", "--module-dir", action="store", dest="module_dir", default=MODULEDIR, help="Ansible library path")
     p.add_option("-P", "--plugin-type", action="store", dest="plugin_type", default='module', help="The type of plugin (module, lookup, etc)")
-    p.add_option("-T", "--template-dir", action="store", dest="template_dir", default="hacking/templates", help="directory containing Jinja2 templates")
+    p.add_option("-T", "--template-dir", action="append", dest="template_dir", help="directory containing Jinja2 templates")
     p.add_option("-t", "--type", action='store', dest='type', choices=['rst'], default='rst', help="Document type")
     p.add_option("-o", "--output-dir", action="store", dest="output_dir", default=None, help="Output directory for module files")
     p.add_option("-I", "--includes-file", action="store", dest="includes_file", default=None, help="Create a file containing list of processed modules")
@@ -357,7 +364,7 @@ def jinja2_environment(template_dir, typ, plugin_type):
 
     templates = {}
     if typ == 'rst':
-        env.filters['convert_symbols_to_format'] = rst_ify
+        env.filters['rst_ify'] = rst_ify
         env.filters['html_ify'] = html_ify
         env.filters['fmt'] = rst_fmt
         env.filters['xline'] = rst_xline
@@ -525,6 +532,11 @@ def process_plugins(module_map, templates, outputname, output_dir, ansible_versi
 
 
 def process_categories(plugin_info, categories, templates, output_dir, output_name, plugin_type):
+    # For some reason, this line is changing plugin_info:
+    # text = templates['list_of_CATEGORY_modules'].render(template_data)
+    # To avoid that, make a deepcopy of the data.
+    # We should track that down and fix it at some point in the future.
+    plugin_info = deepcopy(plugin_info)
     for category in sorted(categories.keys()):
         module_map = categories[category]
         category_filename = output_name % category
@@ -563,7 +575,7 @@ def process_support_levels(plugin_info, templates, output_dir, plugin_type):
                                                       " Ansible Network Team<network_maintained>` in"
                                                       " a relationship similar to how the Ansible Core Team"
                                                       " maintains the Core modules."},
-                    'Ansible Partners': {'slug': 'partner_supported',
+                    'Ansible Partners': {'slug': 'certified_supported',
                                          'modules': [],
                                          'output': 'partner_maintained.rst',
                                          'blurb': """
@@ -640,6 +652,8 @@ def main():
     # INIT
     p = generate_parser()
     (options, args) = p.parse_args()
+    if not options.template_dir:
+        options.template_dir = ["hacking/templates"]
     validate_options(options)
     display.verbosity = options.verbosity
     plugin_type = options.plugin_type
@@ -678,7 +692,7 @@ def main():
             display.vv(key)
             display.vvvvv(pp.pformat(('record', record)))
             if record.get('doc', None):
-                short_desc = record['doc']['short_description']
+                short_desc = record['doc']['short_description'].rstrip('.')
                 if short_desc is None:
                     display.warning('short_description for %s is None' % key)
                     short_desc = ''

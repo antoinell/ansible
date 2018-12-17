@@ -142,6 +142,9 @@ options:
     version_added: '2.5'
 notes:
 - For non-Windows targets, use the M(uri) module instead.
+seealso:
+- module: uri
+- module: win_get_url
 author:
 - Corwin Brown (@blakfeld)
 - Dag Wieers (@dagwieers)
@@ -174,6 +177,11 @@ EXAMPLES = r'''
 '''
 
 RETURN = r'''
+elapsed:
+  description: The number of seconds that elapsed while performing the download
+  returned: always
+  type: float
+  sample: 23.2
 url:
   description: The Target URL
   returned: always

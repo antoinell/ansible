@@ -8,7 +8,7 @@ __metaclass__ = type
 
 ANSIBLE_METADATA = {'metadata_version': '1.1',
                     'status': ['preview'],
-                    'supported_by': 'community'}
+                    'supported_by': 'certified'}
 
 DOCUMENTATION = r'''
 ---
@@ -19,8 +19,12 @@ description:
 notes:
 - The C(bd) and C(l3out) parameters should exist before using this module.
   The M(aci_bd) and C(aci_l3out) can be used for these.
-- More information about the internal APIC class B(fv:RsBDToOut) from
-  L(the APIC Management Information Model reference,https://developer.cisco.com/docs/apic-mim-ref/).
+seealso:
+- module: aci_bd
+- module: aci_l3out
+- name: APIC Management Information Model reference
+  description: More information about the internal APIC class B(fv:RsBDToOut).
+  link: https://developer.cisco.com/docs/apic-mim-ref/
 author:
 - Jacob McGill (@jmcgill298)
 version_added: '2.4'

@@ -36,6 +36,7 @@ from ansible.module_utils._text import to_text
 from ansible.module_utils.basic import env_fallback, return_values
 from ansible.module_utils.network.common.utils import to_list, ComplexList
 from ansible.module_utils.connection import Connection, ConnectionError
+from ansible.module_utils.common._collections_compat import Mapping
 from ansible.module_utils.network.common.config import NetworkConfig, dumps
 from ansible.module_utils.six import iteritems, string_types
 from ansible.module_utils.urls import fetch_url
@@ -104,10 +105,15 @@ def get_connection(module):
     global _DEVICE_CONNECTION
     if not _DEVICE_CONNECTION:
         load_params(module)
-        if is_nxapi(module):
-            conn = Nxapi(module)
+        if is_local_nxapi(module):
+            conn = LocalNxapi(module)
         else:
-            conn = Cli(module)
+            connection_proxy = Connection(module._socket_path)
+            cap = json.loads(connection_proxy.get_capabilities())
+            if cap['network_api'] == 'cliconf':
+                conn = Cli(module)
+            elif cap['network_api'] == 'nxapi':
+                conn = HttpApi(module)
         _DEVICE_CONNECTION = conn
     return _DEVICE_CONNECTION
 
@@ -144,7 +150,7 @@ class Cli:
             except ConnectionError as exc:
                 self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
 
-            cfg = to_text(out, errors='surrogate_then_replace').strip()
+            cfg = to_text(out, errors='surrogate_then_replace').strip() + '\n'
             self._device_configs[cmd] = cfg
             return cfg
 
@@ -161,7 +167,7 @@ class Cli:
 
                 if network_api == 'cliconf' and out:
                     for index, resp in enumerate(out):
-                        if 'Invalid command at' in resp and 'json' in resp:
+                        if ('Invalid command at' in resp or 'Ambiguous command at' in resp) and 'json' in resp:
                             if commands[index]['output'] == 'json':
                                 commands[index]['output'] = 'text'
                                 out = connection.run_commands(commands, check_rc)
@@ -179,14 +185,14 @@ class Cli:
         responses = []
         try:
             resp = connection.edit_config(config, replace=replace)
-            if isinstance(resp, collections.Mapping):
+            if isinstance(resp, Mapping):
                 resp = resp['response']
         except ConnectionError as e:
             code = getattr(e, 'code', 1)
             message = getattr(e, 'err', e)
             err = to_text(message, errors='surrogate_then_replace')
             if opts.get('ignore_timeout') and code:
-                responses.append(code)
+                responses.append(err)
                 return responses
             elif code and 'no graceful-restart' in err:
                 if 'ISSU/HA will be affected if Graceful Restart is disabled' in err:
@@ -224,8 +230,26 @@ class Cli:
         self._module._capabilities = json.loads(capabilities)
         return self._module._capabilities
 
+    def read_module_context(self, module_key):
+        connection = self._get_connection()
+        try:
+            module_context = connection.read_module_context(module_key)
+        except ConnectionError as exc:
+            self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
 
-class Nxapi:
+        return module_context
+
+    def save_module_context(self, module_key, module_context):
+        connection = self._get_connection()
+        try:
+            connection.save_module_context(module_key, module_context)
+        except ConnectionError as exc:
+            self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
+
+        return None
+
+
+class LocalNxapi:
 
     OUTPUT_TO_COMMAND_TYPE = {
         'text': 'cli_show_ascii',
@@ -238,6 +262,7 @@ class Nxapi:
         self._module = module
         self._nxapi_auth = None
         self._device_configs = {}
+        self._module_context = {}
 
         self._module.params['url_username'] = self._module.params['username']
         self._module.params['url_password'] = self._module.params['password']
@@ -464,23 +489,190 @@ class Nxapi:
         result['network_api'] = 'nxapi'
         return result
 
+    def read_module_context(self, module_key):
+        if self._module_context.get(module_key):
+            return self._module_context[module_key]
+
+        return None
+
+    def save_module_context(self, module_key, module_context):
+        self._module_context[module_key] = module_context
+
+        return None
+
+
+class HttpApi:
+    def __init__(self, module):
+        self._module = module
+        self._device_configs = {}
+        self._module_context = {}
+        self._connection_obj = None
+
+    @property
+    def _connection(self):
+        if not self._connection_obj:
+            self._connection_obj = Connection(self._module._socket_path)
+
+        return self._connection_obj
+
+    def run_commands(self, commands, check_rc=True):
+        """Runs list of commands on remote device and returns results
+        """
+        try:
+            out = self._connection.send_request(commands)
+        except ConnectionError as exc:
+            if check_rc is True:
+                raise
+            out = to_text(exc)
+
+        out = to_list(out)
+        if not out[0]:
+            return out
+
+        for index, response in enumerate(out):
+            if response[0] == '{':
+                out[index] = json.loads(response)
+
+        return out
+
+    def get_config(self, flags=None):
+        """Retrieves the current config from the device or cache
+        """
+        flags = [] if flags is None else flags
+
+        cmd = 'show running-config '
+        cmd += ' '.join(flags)
+        cmd = cmd.strip()
+
+        try:
+            return self._device_configs[cmd]
+        except KeyError:
+            try:
+                out = self._connection.send_request(cmd)
+            except ConnectionError as exc:
+                self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
+
+            cfg = to_text(out).strip()
+            self._device_configs[cmd] = cfg
+            return cfg
+
+    def get_diff(self, candidate=None, running=None, diff_match='line', diff_ignore_lines=None, path=None, diff_replace='line'):
+        diff = {}
+
+        # prepare candidate configuration
+        candidate_obj = NetworkConfig(indent=2)
+        candidate_obj.load(candidate)
+
+        if running and diff_match != 'none' and diff_replace != 'config':
+            # running configuration
+            running_obj = NetworkConfig(indent=2, contents=running, ignore_lines=diff_ignore_lines)
+            configdiffobjs = candidate_obj.difference(running_obj, path=path, match=diff_match, replace=diff_replace)
+
+        else:
+            configdiffobjs = candidate_obj.items
+
+        diff['config_diff'] = dumps(configdiffobjs, 'commands') if configdiffobjs else ''
+        return diff
+
+    def load_config(self, commands, return_error=False, opts=None, replace=None):
+        """Sends the ordered set of commands to the device
+        """
+        if opts is None:
+            opts = {}
+
+        responses = []
+        try:
+            resp = self.edit_config(commands, replace=replace)
+        except ConnectionError as exc:
+            code = getattr(exc, 'code', 1)
+            message = getattr(exc, 'err', exc)
+            err = to_text(message, errors='surrogate_then_replace')
+            if opts.get('ignore_timeout') and code:
+                responses.append(code)
+                return responses
+            elif code and 'no graceful-restart' in err:
+                if 'ISSU/HA will be affected if Graceful Restart is disabled' in err:
+                    msg = ['']
+                    responses.extend(msg)
+                    return responses
+                else:
+                    self._module.fail_json(msg=err)
+            elif code:
+                self._module.fail_json(msg=err)
+
+        responses.extend(resp)
+        return responses
+
+    def edit_config(self, candidate=None, commit=True, replace=None, comment=None):
+        resp = list()
+
+        self.check_edit_config_capability(candidate, commit, replace, comment)
+
+        if replace:
+            candidate = 'config replace {0}'.format(replace)
+
+        responses = self._connection.send_request(candidate, output='config')
+        for response in to_list(responses):
+            if response != '{}':
+                resp.append(response)
+        if not resp:
+            resp = ['']
+
+        return resp
+
+    def get_capabilities(self):
+        """Returns platform info of the remove device
+        """
+        try:
+            capabilities = self._connection.get_capabilities()
+        except ConnectionError as exc:
+            self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
+
+        return json.loads(capabilities)
+
+    def check_edit_config_capability(self, candidate=None, commit=True, replace=None, comment=None):
+        operations = self._connection.get_device_operations()
+
+        if not candidate and not replace:
+            raise ValueError("must provide a candidate or replace to load configuration")
+
+        if commit not in (True, False):
+            raise ValueError("'commit' must be a bool, got %s" % commit)
+
+        if replace and not operations.get('supports_replace'):
+            raise ValueError("configuration replace is not supported")
+
+        if comment and not operations.get('supports_commit_comment', False):
+            raise ValueError("commit comment is not supported")
+
+    def read_module_context(self, module_key):
+        if self._module_context.get(module_key):
+            return self._module_context[module_key]
+
+        return None
+
+    def save_module_context(self, module_key, module_context):
+        self._module_context[module_key] = module_context
+
+        return None
+
 
 def is_json(cmd):
-    return str(cmd).endswith('| json')
+    return to_text(cmd).endswith('| json')
 
 
 def is_text(cmd):
     return not is_json(cmd)
 
 
-def is_nxapi(module):
+def is_local_nxapi(module):
     transport = module.params['transport']
     provider_transport = (module.params['provider'] or {}).get('transport')
     return 'nxapi' in (transport, provider_transport)
 
 
 def to_command(module, commands):
-    if is_nxapi(module):
+    if is_local_nxapi(module):
         default_output = 'json'
     else:
         default_output = 'text'
@@ -488,8 +680,10 @@ def to_command(module, commands):
     transform = ComplexList(dict(
         command=dict(key=True),
         output=dict(default=default_output),
-        prompt=dict(),
-        answer=dict()
+        prompt=dict(type='list'),
+        answer=dict(type='list'),
+        sendonly=dict(type='bool', default=False),
+        check_all=dict(type='bool', default=False),
     ), module)
 
     commands = transform(to_list(commands))
@@ -587,3 +781,13 @@ def get_interface_type(interface):
         return 'nve'
     else:
         return 'unknown'
+
+
+def read_module_context(module):
+    conn = get_connection(module)
+    return conn.read_module_context(module._name)
+
+
+def save_module_context(module, module_context):
+    conn = get_connection(module)
+    return conn.save_module_context(module._name, module_context)

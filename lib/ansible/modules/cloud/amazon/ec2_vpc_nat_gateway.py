@@ -47,16 +47,19 @@ options:
       - if a NAT Gateway exists already in the subnet_id, then do not create a new one.
     required: false
     default: false
+    type: bool
   release_eip:
     description:
       - Deallocate the EIP from the VPC.
       - Option is only valid with the absent state.
       - You should use this with the wait option. Since you can not release an address while a delete operation is happening.
     default: 'yes'
+    type: bool
   wait:
     description:
       - Wait for operation to complete before returning.
     default: 'no'
+    type: bool
   wait_timeout:
     description:
       - How many seconds to wait for an operation to complete before timing out.
@@ -67,9 +70,9 @@ options:
         When specifying this option, ensure you specify the eip_address parameter
         as well otherwise any subsequent runs will fail.
 author:
-  - "Allen Sanabria (@linuxdynasty)"
-  - "Jon Hadfield (@jonhadfield)"
-  - "Karen Cheng(@Etherdaemon)"
+  - Allen Sanabria (@linuxdynasty)
+  - Jon Hadfield (@jonhadfield)
+  - Karen Cheng (@Etherdaemon)
 extends_documentation_fragment:
   - aws
   - ec2
@@ -129,7 +132,7 @@ EXAMPLES = '''
     nat_gateway_id: "{{ item.NatGatewayId }}"
     release_eip: yes
   register: delete_nat_gateway_result
-  with_items: "{{ gateways_to_remove.result }}"
+  loop: "{{ gateways_to_remove.result }}"
 
 - name: Delete nat gateway and wait for deleted status.
   ec2_vpc_nat_gateway:
@@ -151,7 +154,7 @@ EXAMPLES = '''
 
 RETURN = '''
 create_time:
-  description: The ISO 8601 date time formatin UTC.
+  description: The ISO 8601 date time format in UTC.
   returned: In all cases.
   type: string
   sample: "2016-03-05T05:19:20.282000+00:00'"

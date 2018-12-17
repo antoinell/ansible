@@ -9,7 +9,7 @@ __metaclass__ = type
 
 ANSIBLE_METADATA = {'metadata_version': '1.1',
                     'status': ['preview'],
-                    'supported_by': 'community'}
+                    'supported_by': 'certified'}
 
 DOCUMENTATION = r'''
 ---
@@ -26,8 +26,11 @@ notes:
   This is a known APIC problem and has been reported to the vendor. A workaround for this issue exists.
   More information in :ref:`the ACI documentation <aci_guide_known_issues>`.
 - XML payloads require the C(lxml) and C(xmljson) python libraries. For JSON payloads nothing special is needed.
-- More information regarding the APIC REST API is available from
-  L(the Cisco APIC REST API Configuration Guide,http://www.cisco.com/c/en/us/td/docs/switches/datacenter/aci/apic/sw/2-x/rest_cfg/2_1_x/b_Cisco_APIC_REST_API_Configuration_Guide.html).  # NOQA
+seealso:
+- module: aci_tenant
+- name: Cisco APIC REST API Configuration Guide
+  description: More information about the APIC REST API.
+  link: http://www.cisco.com/c/en/us/td/docs/switches/datacenter/aci/apic/sw/2-x/rest_cfg/2_1_x/b_Cisco_APIC_REST_API_Configuration_Guide.html
 author:
 - Dag Wieers (@dagwieers)
 version_added: '2.4'
@@ -69,7 +72,7 @@ extends_documentation_fragment: aci
 '''
 
 EXAMPLES = r'''
-- name: Add a tenant using certifcate authentication
+- name: Add a tenant using certificate authentication
   aci_rest:
     host: apic
     username: admin
@@ -239,7 +242,7 @@ import os
 try:
     from ansible.module_utils.six.moves.urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
     HAS_URLPARSE = True
-except:
+except Exception:
     HAS_URLPARSE = False
 
 # Optional, only used for XML payload
@@ -260,7 +263,7 @@ except ImportError:
 try:
     import yaml
     HAS_YAML = True
-except:
+except Exception:
     HAS_YAML = False
 
 from ansible.module_utils.basic import AnsibleModule
@@ -387,8 +390,11 @@ def main():
             except Exception as e:
                 module.fail_json(msg='Failed to parse provided XML payload: %s' % to_text(e), payload=payload)
 
-    # Perform actual request using auth cookie (Same as aci_request, but also supports XML)
-    aci.url = '%(protocol)s://%(host)s/' % aci.params + path.lstrip('/')
+    # Perform actual request using auth cookie (Same as aci.request(), but also supports XML)
+    if 'port' in aci.params and aci.params['port'] is not None:
+        aci.url = '%(protocol)s://%(host)s:%(port)s/' % aci.params + path.lstrip('/')
+    else:
+        aci.url = '%(protocol)s://%(host)s/' % aci.params + path.lstrip('/')
     if aci.params['method'] != 'get':
         path += '?rsp-subtree=modified'
         aci.url = update_qsl(aci.url, {'rsp-subtree': 'modified'})

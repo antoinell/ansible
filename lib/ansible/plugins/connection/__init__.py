@@ -18,13 +18,10 @@ from ansible.module_utils.six import string_types
 from ansible.module_utils._text import to_bytes, to_text
 from ansible.plugins import AnsiblePlugin
 from ansible.plugins.loader import shell_loader, connection_loader
+from ansible.utils.display import Display
 from ansible.utils.path import unfrackpath
 
-try:
-    from __main__ import display
-except ImportError:
-    from ansible.utils.display import Display
-    display = Display()
+display = Display()
 
 
 __all__ = ['ConnectionBase', 'ensure_connect']
@@ -300,7 +297,8 @@ class NetworkConnectionBase(ConnectionBase):
         self._local = connection_loader.get('local', play_context, '/dev/null')
         self._local.set_options()
 
-        self._implementation_plugins = []
+        self._sub_plugin = {}
+        self._cached_variables = (None, None, None)
 
         # reconstruct the socket_path and set instance values accordingly
         self._ansible_playbook_pid = kwargs.get('ansible_playbook_pid')
@@ -311,7 +309,8 @@ class NetworkConnectionBase(ConnectionBase):
             return self.__dict__[name]
         except KeyError:
             if not name.startswith('_'):
-                for plugin in self._implementation_plugins:
+                plugin = self._sub_plugin.get('obj')
+                if plugin:
                     method = getattr(plugin, name, None)
                     if method is not None:
                         return method
@@ -340,18 +339,15 @@ class NetworkConnectionBase(ConnectionBase):
     def close(self):
         if self._connected:
             self._connected = False
-        self._implementation_plugins = []
 
     def set_options(self, task_keys=None, var_options=None, direct=None):
         super(NetworkConnectionBase, self).set_options(task_keys=task_keys, var_options=var_options, direct=direct)
-        self.set_implementation_plugin_options(task_keys=task_keys, var_options=var_options, direct=direct)
 
-    def set_implementation_plugin_options(self, task_keys=None, var_options=None, direct=None):
-        '''
-        initialize implementation plugin options
-        '''
-        for plugin in self._implementation_plugins:
-            plugin.set_options(task_keys=task_keys, var_options=var_options, direct=direct)
+        if self._sub_plugin.get('obj') and self._sub_plugin.get('type') != 'external':
+            try:
+                self._sub_plugin['obj'].set_options(task_keys=task_keys, var_options=var_options, direct=direct)
+            except AttributeError:
+                pass
 
     def _update_connection_state(self):
         '''

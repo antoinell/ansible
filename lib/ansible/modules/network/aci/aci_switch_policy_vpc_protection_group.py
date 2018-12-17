@@ -9,7 +9,7 @@ __metaclass__ = type
 
 ANSIBLE_METADATA = {'metadata_version': '1.1',
                     'status': ['preview'],
-                    'supported_by': 'community'}
+                    'supported_by': 'certified'}
 
 DOCUMENTATION = r'''
 ---
@@ -17,9 +17,11 @@ module: aci_switch_policy_vpc_protection_group
 short_description: Manage switch policy explicit vPC protection groups (fabric:ExplicitGEp, fabric:NodePEp).
 description:
 - Manage switch policy explicit vPC protection groups on Cisco ACI fabrics.
-notes:
-- More information about the internal APIC classes B(fabric:ExplicitGEp) and B(fabric:NodePEp) from
-  L(the APIC Management Information Model reference,https://developer.cisco.com/docs/apic-mim-ref/).
+seealso:
+- module: aci_switch_policy_leaf_profile
+- name: APIC Management Information Model reference
+  description: More information about the internal APIC classes B(fabric:ExplicitGEp) and B(fabric:NodePEp).
+  link: https://developer.cisco.com/docs/apic-mim-ref/
 author:
 - Bruno Calogero (@brunocalogero)
 version_added: '2.5'
@@ -255,14 +257,12 @@ def main():
             class_config=dict(
                 name=protection_group,
                 id=protection_group_id,
-                rn='expgep-{0}'.format(protection_group),
             ),
             child_configs=[
                 dict(
                     fabricNodePEp=dict(
                         attributes=dict(
                             id='{0}'.format(switch_1_id),
-                            rn='nodepep-{0}'.format(switch_1_id),
                         ),
                     ),
                 ),
@@ -270,7 +270,6 @@ def main():
                     fabricNodePEp=dict(
                         attributes=dict(
                             id='{0}'.format(switch_2_id),
-                            rn='nodepep-{0}'.format(switch_2_id),
                         ),
                     ),
                 ),

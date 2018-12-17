@@ -56,6 +56,7 @@ options:
         run to send them out. This is mostly useful for generating artifacts to be stored/deployed elsewhere.
     required: false
     default: true
+    type: bool
   force:
     description:
       - Whether or not to force full deployment, equivalent to serverless `--force` option.
@@ -71,7 +72,7 @@ options:
 notes:
    - Currently, the `serverless` command must be in the path of the node executing the task. In the future this may be a flag.
 requirements: [ "serverless", "yaml" ]
-author: "Ryan Scott Brown @ryansb"
+author: Ryan Scott Brown (@ryansb)
 '''
 
 EXAMPLES = """

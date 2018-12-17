@@ -73,6 +73,9 @@ options:
     aliases: [ attr, attributes ]
 notes:
      - For Windows targets, use the M(win_stat) module instead.
+seealso:
+- module: file
+- module: win_stat
 author: Bruce Pennypacker (@bpennypacker)
 '''
 
@@ -121,10 +124,10 @@ EXAMPLES = '''
     msg: "Path exists and is a directory"
   when: p.stat.isdir is defined and p.stat.isdir
 
-# Don't do md5 checksum
+# Don't do checksum
 - stat:
     path: /path/to/myhugefile
-    get_md5: no
+    get_checksum: no
 
 # Use sha256 to calculate checksum
 - stat:
@@ -322,13 +325,13 @@ stat:
             returned: success, path exists and user can read stats and installed python supports it
             type: string
             sample: www-data
-        mime_type:
+        mimetype:
             description: file magic data or mime-type
             returned: success, path exists and user can read stats and
                 installed python supports it and the `mime` option was true, will
                 return 'unknown' on error.
             type: string
-            sample: PDF document, version 1.2
+            sample: application/pdf; charset=binary
         charset:
             description: file character set or encoding
             returned: success, path exists and user can read stats and
@@ -496,13 +499,13 @@ def main():
     try:  # user data
         pw = pwd.getpwuid(st.st_uid)
         output['pw_name'] = pw.pw_name
-    except:
+    except (TypeError, KeyError):
         pass
 
     try:  # group data
         grp_info = grp.getgrgid(st.st_gid)
         output['gr_name'] = grp_info.gr_name
-    except:
+    except (KeyError, ValueError, OverflowError):
         pass
 
     # checksums
@@ -529,7 +532,7 @@ def main():
                     mimetype, charset = out.split(':')[1].split(';')
                     output['mimetype'] = mimetype.strip()
                     output['charset'] = charset.split('=')[1].strip()
-            except:
+            except Exception:
                 pass
 
     # try to get attr data

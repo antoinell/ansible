@@ -6,10 +6,6 @@ from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 __requires__ = ['ansible']
 
-try:
-    import pkg_resources
-except Exception:
-    pass
 
 import fcntl
 import hashlib
@@ -30,6 +26,7 @@ from ansible.module_utils.six import PY3
 from ansible.module_utils.six.moves import cPickle, StringIO
 from ansible.module_utils.connection import Connection, ConnectionError, send_data, recv_data
 from ansible.module_utils.service import fork_process
+from ansible.parsing.ajson import AnsibleJSONEncoder, AnsibleJSONDecoder
 from ansible.playbook.play_context import PlayContext
 from ansible.plugins.loader import connection_loader
 from ansible.utils.path import unfrackpath, makedirs_safe
@@ -105,10 +102,6 @@ class ConnectionProcess(object):
             self.connection.set_options(var_options=variables)
             self.connection._connect()
 
-            # implementation plugins are updated while connection initialization
-            if hasattr(self.connection, 'set_implementation_plugin_options'):
-                self.connection.set_implementation_plugin_options(var_options=variables)
-
             self.connection._socket_path = self.socket_path
             self.srv.register(self.connection)
             messages.extend(sys.stdout.getvalue().splitlines())
@@ -123,7 +116,7 @@ class ConnectionProcess(object):
             result['exception'] = traceback.format_exc()
         finally:
             result['messages'] = messages
-            self.fd.write(json.dumps(result))
+            self.fd.write(json.dumps(result, cls=AnsibleJSONEncoder))
             self.fd.close()
 
     def run(self):
@@ -192,7 +185,7 @@ class ConnectionProcess(object):
                     self.sock.close()
                 if self.connection:
                     self.connection.close()
-            except:
+            except Exception:
                 pass
             finally:
                 if os.path.exists(self.socket_path):
@@ -275,13 +268,15 @@ def main():
 
                     if rc == 0:
                         process.run()
+                    else:
+                        process.shutdown()
 
                     sys.exit(rc)
 
                 else:
                     os.close(w)
                     rfd = os.fdopen(r, 'r')
-                    data = json.loads(rfd.read())
+                    data = json.loads(rfd.read(), cls=AnsibleJSONDecoder)
                     messages.extend(data.pop('messages'))
                     result.update(data)
 
@@ -312,10 +307,10 @@ def main():
     sys.stdout = saved_stdout
     if 'exception' in result:
         rc = 1
-        sys.stderr.write(json.dumps(result))
+        sys.stderr.write(json.dumps(result, cls=AnsibleJSONEncoder))
     else:
         rc = 0
-        sys.stdout.write(json.dumps(result))
+        sys.stdout.write(json.dumps(result, cls=AnsibleJSONEncoder))
 
     sys.exit(rc)
 

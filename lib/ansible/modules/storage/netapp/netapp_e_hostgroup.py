@@ -17,7 +17,7 @@ DOCUMENTATION = '''
 ---
 module: netapp_e_hostgroup
 version_added: "2.2"
-short_description: Manage NetApp Storage Array Host Groups
+short_description: NetApp E-Series manage array host groups
 author: Kevin Hulquest (@hulquest)
 description:
 - Create, update or destroy host groups on a NetApp E-Series storage array.
@@ -150,7 +150,7 @@ def request(url, data=None, headers=None, method='GET', use_proxy=True,
             data = json.loads(raw_data)
         else:
             raw_data = None
-    except:
+    except Exception:
         if ignore_errors:
             pass
         else:

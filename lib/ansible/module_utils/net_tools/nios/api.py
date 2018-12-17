@@ -213,19 +213,8 @@ class WapiModule(WapiBase):
 
         obj_filter = dict([(k, self.module.params[k]) for k, v in iteritems(ib_spec) if v.get('ib_req')])
 
-        if('name' in obj_filter):
-            ib_obj_ref, update, new_name = self.get_object_ref(ib_obj_type, obj_filter, ib_spec)
-        else:
-            ib_obj_ref = self.get_object(ib_obj_type, obj_filter.copy(), return_fields=ib_spec.keys())
-
-        if ib_obj_ref:
-            current_object = ib_obj_ref[0]
-            if 'extattrs' in current_object:
-                current_object['extattrs'] = flatten_extattrs(current_object['extattrs'])
-            ref = current_object.pop('_ref')
-        else:
-            current_object = obj_filter
-            ref = None
+        # get object reference
+        ib_obj_ref, update, new_name = self.get_object_ref(self.module, ib_obj_type, obj_filter, ib_spec)
 
         proposed_object = {}
         for key, value in iteritems(ib_spec):
@@ -234,6 +223,20 @@ class WapiModule(WapiBase):
                     proposed_object[key] = value['transform'](self.module)
                 else:
                     proposed_object[key] = self.module.params[key]
+
+        if ib_obj_ref:
+            if len(ib_obj_ref) > 1:
+                for each in ib_obj_ref:
+                    if each['ipv4addr'] == proposed_object['ipv4addr']:
+                        current_object = each
+            else:
+                current_object = ib_obj_ref[0]
+            if 'extattrs' in current_object:
+                current_object['extattrs'] = flatten_extattrs(current_object['extattrs'])
+            ref = current_object.pop('_ref')
+        else:
+            current_object = obj_filter
+            ref = None
 
         # checks if the name's field has been updated
         if update and new_name:
@@ -253,6 +256,11 @@ class WapiModule(WapiBase):
 
                 if (ib_obj_type in (NIOS_HOST_RECORD, NIOS_NETWORK_VIEW, NIOS_DNS_VIEW)):
                     proposed_object = self.on_update(proposed_object, ib_spec)
+                    res = self.update_object(ref, proposed_object)
+                if (ib_obj_type in (NIOS_A_RECORD, NIOS_AAAA_RECORD)):
+                    # popping 'view' key as update of 'view' is not supported with respect to a:record/aaaa:record
+                    proposed_object = self.on_update(proposed_object, ib_spec)
+                    del proposed_object['view']
                     res = self.update_object(ref, proposed_object)
                 elif 'network_view' in proposed_object:
                     proposed_object.pop('network_view')
@@ -324,40 +332,56 @@ class WapiModule(WapiBase):
 
         return True
 
-    def get_object_ref(self, ib_obj_type, obj_filter, ib_spec):
-        ''' this function gets and returns the current object based on name/old_name passed'''
+    def get_object_ref(self, module, ib_obj_type, obj_filter, ib_spec):
+        ''' this function gets the reference object of pre-existing nios objects '''
+
         update = False
         old_name = new_name = None
-        try:
-            name_obj = self.module._check_type_dict(obj_filter['name'])
-            old_name = name_obj['old_name']
-            new_name = name_obj['new_name']
-        except TypeError:
-            name = obj_filter['name']
+        if ('name' in obj_filter):
+            # gets and returns the current object based on name/old_name passed
+            try:
+                name_obj = self.module._check_type_dict(obj_filter['name'])
+                old_name = name_obj['old_name']
+                new_name = name_obj['new_name']
+            except TypeError:
+                name = obj_filter['name']
 
-        if old_name and new_name:
-            if (ib_obj_type == NIOS_HOST_RECORD):
-                test_obj_filter = dict([('name', old_name), ('view', obj_filter['view'])])
-            else:
-                test_obj_filter = dict([('name', old_name)])
-            # get the object reference
-            ib_obj = self.get_object(ib_obj_type, test_obj_filter, return_fields=ib_spec.keys())
-            if ib_obj:
-                obj_filter['name'] = new_name
-            else:
-                test_obj_filter['name'] = new_name
+            if old_name and new_name:
+                if (ib_obj_type == NIOS_HOST_RECORD):
+                    test_obj_filter = dict([('name', old_name), ('view', obj_filter['view'])])
+                elif (ib_obj_type in (NIOS_AAAA_RECORD, NIOS_A_RECORD)):
+                    test_obj_filter = obj_filter
+                else:
+                    test_obj_filter = dict([('name', old_name)])
+                # get the object reference
                 ib_obj = self.get_object(ib_obj_type, test_obj_filter, return_fields=ib_spec.keys())
-            update = True
-            return ib_obj, update, new_name
-        if (ib_obj_type == NIOS_HOST_RECORD):
-            # to check only by name if dns bypassing is set
-            if not obj_filter['configure_for_dns']:
-                test_obj_filter = dict([('name', name)])
+                if ib_obj:
+                    obj_filter['name'] = new_name
+                else:
+                    test_obj_filter['name'] = new_name
+                    ib_obj = self.get_object(ib_obj_type, test_obj_filter, return_fields=ib_spec.keys())
+                update = True
+                return ib_obj, update, new_name
+            if (ib_obj_type == NIOS_HOST_RECORD):
+                # to check only by name if dns bypassing is set
+                if not obj_filter['configure_for_dns']:
+                    test_obj_filter = dict([('name', name)])
+                else:
+                    test_obj_filter = dict([('name', name), ('view', obj_filter['view'])])
+            # check if test_obj_filter is empty copy passed obj_filter
             else:
-                test_obj_filter = dict([('name', name), ('view', obj_filter['view'])])
+                test_obj_filter = obj_filter
+            ib_obj = self.get_object(ib_obj_type, test_obj_filter.copy(), return_fields=ib_spec.keys())
+        elif (ib_obj_type == NIOS_ZONE):
+            # del key 'restart_if_needed' as nios_zone get_object fails with the key present
+            temp = ib_spec['restart_if_needed']
+            del ib_spec['restart_if_needed']
+            ib_obj = self.get_object(ib_obj_type, obj_filter.copy(), return_fields=ib_spec.keys())
+            # reinstate restart_if_needed key if it's set to true in play
+            if module.params['restart_if_needed']:
+                ib_spec['restart_if_needed'] = temp
         else:
-            test_obj_filter = dict([('name', name)])
-        ib_obj = self.get_object(ib_obj_type, test_obj_filter.copy(), return_fields=ib_spec.keys())
+            ib_obj = self.get_object(ib_obj_type, obj_filter.copy(), return_fields=ib_spec.keys())
         return ib_obj, update, new_name
 
     def on_update(self, proposed_object, ib_spec):
@@ -366,7 +390,7 @@ class WapiModule(WapiBase):
         and/or keys filtered before it is sent to the API endpoint to
         be processed.
         :args proposed_object: A dict item that will be encoded and sent
-            the the API endpoint with the updated data structure
+            the API endpoint with the updated data structure
         :returns: updated object to be sent to API endpoint
         '''
         keys = set()
